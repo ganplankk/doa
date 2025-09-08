@@ -9,4 +9,7 @@ spec:
   replicas: 1
   roles: [ controller ]
   storage:
-    type: ephemeral
+    type: persistent-claim
+    size: 10Gi               # 컨트롤러는 보통 더 작게도 충분
+    class: standard
+    deleteClaim: false

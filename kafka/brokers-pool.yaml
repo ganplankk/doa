@@ -9,4 +9,7 @@ spec:
   replicas: 1
   roles: [ broker ]
   storage:
-    type: ephemeral
+    type: persistent-claim
+    size: 20Gi
+    class: standard          # (선택) 사용할 StorageClass 명시
+    deleteClaim: false       # Kafka 삭제해도 PVC는 남도록 (기본은 false 권장)
