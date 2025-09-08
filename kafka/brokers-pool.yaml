@@ -1,0 +1,12 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: kp-brokers
+  namespace: streaming
+  labels:
+    strimzi.io/cluster: doa-kafka
+spec:
+  replicas: 1
+  roles: [ broker ]
+  storage:
+    type: ephemeral

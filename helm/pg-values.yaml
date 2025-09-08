@@ -1,0 +1,25 @@
+auth:
+  username: bhs
+  password: admin
+  database: bhsdb
+
+primary:
+  # Postgres 설정(override.conf에 반영)
+  configuration: |-
+    wal_level = logical
+    max_wal_senders = 10
+    max_replication_slots = 10
+    shared_preload_libraries = ''
+
+  # 퍼미션 문제 방지
+  volumePermissions:
+    enabled: true
+
+  podSecurityContext:
+    enabled: true
+    fsGroup: 1001
+    fsGroupChangePolicy: "Always"
+
+  containerSecurityContext:
+    enabled: true
+    runAsUser: 1001
