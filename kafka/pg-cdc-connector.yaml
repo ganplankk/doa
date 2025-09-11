@@ -1,0 +1,58 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: pg-cdc
+  namespace: streaming
+  labels:
+    # 이 라벨로 어떤 KafkaConnect에 붙을지 지정 (doa-connect)
+    strimzi.io/cluster: doa-connect
+spec:
+  class: io.debezium.connector.postgresql.PostgresConnector
+  tasksMax: 1
+  config:
+    # --- Postgres 접속 ---
+    database.hostname: pg-postgresql.data.svc.cluster.local
+    database.port: "5432"
+    database.dbname: doadb
+    database.user: "${secrets:pg-credentials:db_user}"       # kubectl로 만든 Secret 참조
+    database.password: "${secrets:pg-credentials:db_password}"
+
+    # --- WAL/출판/슬롯 ---
+    plugin.name: pgoutput
+    publication.name: debezium_pub
+    publication.autocreate.mode: filtered    # 권한 있으면 자동 생성(없으면 미사용)
+    slot.name: debezium_slot
+    # slot.drop.on.stop: "true"              # Dev에서만 활성 권장. Prod에선 보통 유지.
+
+    # --- 캡처 범위 ---
+    schema.include.list: public
+    table.include.list: public.customers
+
+    # --- 토픽/스냅샷/하트비트 ---
+    topic.prefix: doadb                       # Debezium 2.x 권장 키
+    snapshot.mode: initial
+    incremental.snapshot.allowed: "true"
+    signal.data.collection: "public.debezium_signal"
+    heartbeat.interval.ms: "10000"
+
+    # --- 포맷/삭제 처리 ---
+    tombstones.on.delete: "false"
+    transforms: unwrap,route
+    transforms.unwrap.type: io.debezium.transforms.ExtractNewRecordState
+    transforms.unwrap.add.fields: "op,source.ts_ms,table"
+    transforms.unwrap.delete.handling.mode: rewrite
+    transforms.unwrap.drop.tombstones: "false"
+    transforms.route.type: org.apache.kafka.connect.transforms.RegexRouter
+    transforms.route.regex: "doadb\\.public\\.(.*)"
+    transforms.route.replacement: "cdc.public.$1"
+
+    # --- 에러 핸들링/DLQ ---
+    errors.tolerance: "all"
+    errors.log.enable: "true"
+    errors.log.include.messages: "true"
+    errors.deadletterqueue.topic.name: "dlq.pg-cdc"
+    errors.deadletterqueue.context.headers.enable: "true"
+
+    # (클러스터 내부라면 TLS 미사용)
+    # database.sslmode: disable
+

@@ -1,0 +1,24 @@
+global:
+  postgresql:
+    auth:
+      database: doadb
+      password: admin
+      username: bhs
+pgHbaConfiguration: |-
+  local all postgres  trust
+  host  all all 0.0.0.0/0 scram-sha-256
+  host  replication debezium  10.244.0.0/16 scram-sha-256
+postgresqlExtendedConf:
+  max_replication_slots: 10
+  max_wal_senders: 10
+  wal_level: logical
+primary:
+  extendedConfiguration: |-
+    wal_level = logical
+    max_replication_slots = 10
+    max_wal_senders = 10
+  pgHbaConfiguration: |-
+    local all all scram-sha-256
+    host all all 0.0.0.0/0 scram-sha-256
+    host all all ::/0 scram-sha-256
+    host replication debezium 10.244.0.0/16 scram-sha-256

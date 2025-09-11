@@ -1,0 +1,87 @@
+global:
+  postgresql:
+    auth:
+      existingSecret: my-postgres-secret
+      enablePostgresUser: true
+      database: doadb
+      username: bhs
+      password: admin
+  #pgHbaConfiguration: |-
+  #  host all all 0.0.0.0/0 scram-sha-256
+  #  host replication debezium 10.244.0.0/16 scram-sha-256
+  #postgresqlExtendedConf:
+  #  max_replication_slots: 10
+  #  max_wal_senders: 10
+  #  wal_level: logical
+
+primary:
+  #tls:
+  #  enabled: true
+  #  certificatesSecret: pg-tls       # tls.crt/tls.key/ca.crt 들어있는 시크릿
+  #  certFilename: tls.crt
+  #  certKeyFilename: tls.key
+  #  certCAFilename: ca.crt
+
+  pgHbaConfiguration: |-
+    local   all             postgres                                scram-sha-256
+    local   all             all                                      scram-sha-256
+    host    all             all             127.0.0.1/32            scram-sha-256
+    host    all             all             ::1/128                 scram-sha-256
+
+    # 2) 쿠버네티스 내부(Pod CIDR) — Debezium/Kafka Connect 등
+    #    (네트워크 플러그인에 맞춰 CIDR 교체: 예 Flannel 10.244.0.0/16, Calico 192.168.0.0/16 등)
+    host    doadb           debezium        10.244.0.0/16           scram-sha-256
+    host    replication     debezium        10.244.0.0/16           scram-sha-256
+
+    # 3) 외부(= Apps Script egress IP) — "정말" 필요한 경우만, TLS + mTLS 강제
+    #    <ALLOWLIST>는 고정된 소스 IP(/32 또는 소수의 /29 등)만 넣기
+    #hostssl doadb           appscript_user  <ALLOWLIST>/32          scram-sha-256 clientcert=1
+    # (IPv6 필요시 hostssl ... ::/0 대신 반드시 좁혀서!)
+
+
+  extendedConfiguration: |-
+    wal_level = logical
+    max_replication_slots = 10
+    max_wal_senders = 10
+    password_encryption = scram-sha-256
+    #ssl = on
+    #ssl_ca_file = '/opt/bitnami/postgresql/certs/ca.crt'
+    #ssl_cert_file = '/opt/bitnami/postgresql/certs/tls.crt'
+    #ssl_key_file = '/opt/bitnami/postgresql/certs/tls.key'
+
+  containerSecurityContext:
+    runAsUser: 1001
+    runAsNonRoot: true
+
+  extraVolumes:
+    - name: pgpass-src
+      secret:
+        secretName: pgpass-secret
+        defaultMode: 0600
+    - name: pgpass-work
+      emptyDir: {}
+
+  extraVolumeMounts:
+    - name: pgpass-src
+      mountPath: /tmp/pgpass-src/.pgpass
+      subPath: .pgpass
+      readOnly: true
+    - name: pgpass-work
+      mountPath: /opt/bitnami/pgpass
+
+  extraEnvVars:
+    - name: PGPASSFILE
+      value: /opt/bitnami/pgpass/.pgpass
+    - name: PATH
+      value: /opt/bitnami/postgresql/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+  lifecycleHooks:
+    postStart:
+      exec:
+        command:
+          - sh
+          - -lc
+          - |
+            set -e
+            cp /tmp/pgpass-src/.pgpass /opt/bitnami/pgpass/.pgpass
+            chmod 600 /opt/bitnami/pgpass/.pgpass

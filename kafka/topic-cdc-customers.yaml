@@ -1,0 +1,15 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: cdc.public.customers
+  namespace: streaming
+  labels:
+    strimzi.io/cluster: doa-kafka
+spec:
+  partitions: 1
+  replicas: 1
+  config:
+    cleanup.policy: delete
+    retention.ms: "604800000"   # 7일
+    segment.ms: "86400000"      # 1일당 세그먼트 롤링(선호에 따라)
+    compression.type: producer  # 커넥터 기본 따르기

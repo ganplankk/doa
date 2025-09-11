@@ -1,0 +1,46 @@
+global:
+  postgresql:
+    auth:
+      database: doadb
+      username: bhs
+      password: admin
+
+pgHbaConfiguration: |-
+  host all all 0.0.0.0/0 scram-sha-256
+  host replication debezium 10.244.0.0/16 scram-sha-256
+
+primary:
+  extendedConfiguration: |-
+    wal_level = logical
+    max_replication_slots = 10
+    max_wal_senders = 10
+
+  pgHbaConfiguration: |-
+    local all all scram-sha-256
+    host all all 0.0.0.0/0 scram-sha-256
+    host all all ::/0 scram-sha-256
+    host replication debezium 10.244.0.0/16 scram-sha-256
+
+  podSecurityContext:
+    enabled: false
+
+  volumePermissions:
+    enabled: true
+
+  extraVolumes:
+    - name: pgpass
+      secret:
+        secretName: pgpass-secret
+        defaultMode: 0600
+
+  extraVolumeMounts:
+    - name: pgpass
+      mountPath: /opt/bitnami/.pgpass
+      subPath: .pgpass
+      readOnly: true
+
+  extraEnvVars:
+    - name: PGPASSFILE
+      value: /opt/bitnami/.pgpass
+    - name: PATH
+      value: /opt/bitnami/postgresql/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

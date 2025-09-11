@@ -1,0 +1,39 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnect
+metadata:
+  name: doa-connect
+  namespace: streaming
+  annotations:
+    strimzi.io/use-connector-resources: "true"  # KafkaConnector CR 사용 허용
+spec:
+  version: 3.9.1
+  replicas: 1
+  bootstrapServers: doa-kafka-kafka-bootstrap:9092
+  image: quay.io/debezium/connect:2.6
+  resources:                # (권장) 리소스 가드레일
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+  config:
+    group.id: connect-cluster
+    offset.storage.topic: connect-cluster-offsets
+    config.storage.topic: connect-cluster-configs
+    status.storage.topic: connect-cluster-status
+    offset.storage.replication.factor: 1
+    config.storage.replication.factor: 1
+    status.storage.replication.factor: 1
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    key.converter.schemas.enable: "false"
+    value.converter.schemas.enable: "false"
+
+    # ������ K8s Secret ConfigProvider (비번을 커넥터에서 ${secrets:...}로 참조)
+    config.providers: secrets
+    config.providers.secrets.class: io.strimzi.kafka.KubernetesSecretConfigProvider
+
+    # (옵션) 커넥터 리밸런스/REST 세부
+    # connector.client.config.override.policy: All
+    # rest.advertised.host.name: doa-connect-connect-api.streaming.svc
