@@ -1,0 +1,14 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: cdc.public.rma-lists
+  namespace: streaming
+  labels:
+    strimzi.io/cluster: doa-kafka   # ← 클러스터 이름 반드시!
+spec:
+  topicName: cdc.public.rma_lists
+  partitions: 3                     # 병렬 소비 고려
+  replicas: 1                       # 브로커 수보다 클 수 없음 
+  config:
+    retention.ms: 604800000         # 7일
+    segment.bytes: 1073741824       # 1GB

@@ -1,0 +1,77 @@
+# sheets-upserter.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sheets-upserter
+  namespace: streaming
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: sheets-upserter }
+  template:
+    metadata:
+      labels: { app: sheets-upserter }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      #imagePullSecrets:  ## dockerhub private 변경 시 secret 생성 후 주석 해제
+      #  - name: regcred
+      containers:
+      - name: app
+        image: ganplank/sheets-upserter:10.2           # upserter container 이미지
+        imagePullPolicy: IfNotPresent
+        env:
+        - { name: KAFKA_BOOTSTRAP, value: "doa-kafka-kafka-bootstrap:9092" }
+        - { name: KAFKA_TOPIC,     value: "cdc.public.rma_lists" }
+        - { name: SHEET_ID,        value: "1CA_UeSttNyS-gNCZXAXec7LYJZeAaqXpC-FhxanypmE" }  # 스프레드시트 ID
+        - { name: SHEET_NAME,      value: "list" }                                            # 탭 이름
+        - { name: METRICS_PORT,    value: "8000" }
+        - { name: DLQ_TOPIC,     value: "dlq.sheets-upserter" }    # (옵션) 앱 DLQ 쓰면 주석 해제
+        - { name: GOOGLE_APPLICATION_CREDENTIALS, value: "/var/secrets/service-account.json" }
+
+        # ▼ 새 코드 스위치들
+        - { name: RAW_APPEND_VALUES,   value: "1" }   # JSON 값 순서 그대로 쓰기(기본 권장)
+        - { name: APPEND_ONLY,         value: "0" }   # 업서트/삭제 허용 ↔ 누적만 원하면 "1"
+        - { name: ALLOW_ADD_HIDDEN_PK, value: "1" }   # 헤더가 있으면 A열에 __pk 자동삽입
+        - { name: HIDE_PK_COLUMN,      value: "1" }   # A열(__pk) 숨김(끄려면 "0")
+
+        # ▼ CDC 필드명이 다르면 여기서 바꿔도 됨(기본: Debezium 스타일)
+        - { name: PK_JSON_KEY,      value: "id" }
+        - { name: OP_JSON_KEY,      value: "__op" }
+        - { name: DELETED_JSON_KEY, value: "__deleted" }
+        ports:
+        - { containerPort: 8000, name: metrics }
+        volumeMounts:
+        - { name: sa, mountPath: /var/secrets, readOnly: true }
+        resources:
+          requests: { cpu: "100m", memory: "256Mi" }
+          limits:   { cpu: "500m", memory: "512Mi" }
+        # 간단한 헬스체크(옵션): /metrics가 살아있으면 OK
+        readinessProbe:
+          httpGet: { path: /metrics, port: 8000 }
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet: { path: /metrics, port: 8000 }
+          initialDelaySeconds: 15
+          periodSeconds: 20
+      volumes:
+      - name: sa
+        secret:
+          secretName: gsa-json
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sheets-upserter-metrics
+  namespace: streaming
+spec:
+  selector: { app: sheets-upserter }
+  ports:
+  - name: metrics
+    port: 8000
+    targetPort: 8000
+

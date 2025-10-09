@@ -1,0 +1,6 @@
+google-api-python-client
+google-auth
+google-auth-httplib2
+prometheus_client
+tenacity
+confluent-kafka==2.4.*

@@ -11,7 +11,7 @@ spec:
   bootstrapServers: doa-kafka-kafka-bootstrap:9092
 
   # ➡ 반드시 Strimzi 베이스 이미지여야 합니다
-  image: quay.io/strimzi/kafka:0.47.0-kafka-3.9.1
+  #image: quay.io/strimzi/kafka:0.47.0-kafka-3.9.1
 
   resources:
     requests: { cpu: "500m", memory: "1Gi" }

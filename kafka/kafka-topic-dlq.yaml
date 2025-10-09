@@ -1,0 +1,10 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: dlq-sheets-upserter
+  namespace: streaming
+  labels: { strimzi.io/cluster: doa-kafka }
+spec:
+  topicName: "dlq.sheets-upserter"
+  partitions: 3
+  replicas: 1

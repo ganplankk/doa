@@ -11,7 +11,7 @@ spec:
   tasksMax: 1
   config:
     # --- Postgres 접속 ---
-    database.hostname: pg-postgresql.data.svc.cluster.local
+    database.hostname: pg-postgresql.data.svc.cluster.local 
     database.port: "5432"
     database.dbname: doadb
     database.user: "${secrets:pg-credentials:db_user}"       # kubectl로 만든 Secret 참조
@@ -20,21 +20,32 @@ spec:
     # --- WAL/출판/슬롯 ---
     plugin.name: pgoutput
     publication.name: debezium_pub
-    publication.autocreate.mode: filtered    # 권한 있으면 자동 생성(없으면 미사용)
+    #publication.autocreate.mode: filtered    # 권한 있으면 자동 생성(없으면 미사용)
+    publication.autocreate.mode: disabled    # 권한 있으면 자동 생성(없으면 미사용)
     slot.name: debezium_slot
     # slot.drop.on.stop: "true"              # Dev에서만 활성 권장. Prod에선 보통 유지.
 
     # --- 캡처 범위 ---
     schema.include.list: public
-    table.include.list: public.customers
+    table.include.list: public.rma_lists
 
     # --- 토픽/스냅샷/하트비트 ---
     topic.prefix: doadb                       # Debezium 2.x 권장 키
     snapshot.mode: initial
     incremental.snapshot.allowed: "true"
     signal.data.collection: "public.debezium_signal"
+    schema.history.internal.kafka.topic: "cdc.schema_history"
     heartbeat.interval.ms: "10000"
 
+    topic.creation.default.partitions: 1
+    topic.creation.default.replication.factor: 1
+    topic.creation.groups: "history,heartbeat"
+
+    topic.creation.history.include: "cdc\\.schema_history"
+    topic.creation.history.cleanup.policy: "compact"
+
+    topic.creation.heartbeat.include: "__debezium-heartbeat\\.doadb"
+    topic.creation.heartbeat.retention.ms: "3600000"
     # --- 포맷/삭제 처리 ---
     tombstones.on.delete: "false"
     transforms: unwrap,route
@@ -42,9 +53,9 @@ spec:
     transforms.unwrap.add.fields: "op,source.ts_ms,table"
     transforms.unwrap.delete.handling.mode: rewrite
     transforms.unwrap.drop.tombstones: "false"
-    transforms.route.type: org.apache.kafka.connect.transforms.RegexRouter
-    transforms.route.regex: "doadb\\.public\\.(.*)"
-    transforms.route.replacement: "cdc.public.$1"
+    #transforms.route.type: org.apache.kafka.connect.transforms.RegexRouter
+    #transforms.route.regex: "doadb\\.public\\.(.*)"
+    #transforms.route.replacement: "cdc.public.$1"
 
     # --- 에러 핸들링/DLQ ---
     errors.tolerance: "all"

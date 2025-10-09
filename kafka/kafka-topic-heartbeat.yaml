@@ -1,0 +1,13 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: debezium-heartbeat-doadb    # ✅ 리소스명은 안전하게 하이픈 사용
+  namespace: streaming
+  labels:
+    strimzi.io/cluster: doa-kafka
+spec:
+  topicName: "__debezium-heartbeat.doadb"
+  partitions: 1
+  replicas: 1
+  config:
+    retention.ms: 3600000

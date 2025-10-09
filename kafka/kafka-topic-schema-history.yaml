@@ -1,0 +1,15 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: cdc-schema-history        # ✅ K8s 오브젝트 이름 (언더스코어 X)
+  namespace: streaming
+  labels:
+    strimzi.io/cluster: doa-kafka
+spec:
+  topicName: cdc.schema_history   # ✅ 실제 Kafka 토픽 이름 (언더스코어 O)
+  partitions: 1
+  replicas: 1
+  config:
+    cleanup.policy: compact
+    min.cleanable.dirty.ratio: 0.1
+    segment.ms: 86400000
