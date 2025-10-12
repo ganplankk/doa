@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 환경 변수 및 인증 파일
+.env
+*.json  # 서비스 계정 키
+credentials.json
+google_secret.json
+
+# IDE
+.vscode/
+.idea/
+
+# Logs / Temp
+logs/
+tmp/
+*.log
+
+# Docker / Build
+*.pid
+*.db
+*.sqlite
+*.bak
+*.swp
