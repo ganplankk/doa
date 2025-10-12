@@ -20,7 +20,7 @@ spec:
       #  - name: regcred
       containers:
       - name: app
-        image: ganplank/sheets-upserter:10.2           # upserter container 이미지
+        image: ganplank/sheets-upserter:11.1           # upserter container 이미지
         imagePullPolicy: IfNotPresent
         env:
         - { name: KAFKA_BOOTSTRAP, value: "doa-kafka-kafka-bootstrap:9092" }

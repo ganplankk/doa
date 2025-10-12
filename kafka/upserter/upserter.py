@@ -3,6 +3,7 @@
 import os, sys, signal, json, re
 from typing import Dict, List, Any, Tuple, Optional
 from datetime import date, timedelta
+from collections import OrderedDict
 
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from prometheus_client import start_http_server, Counter, Histogram, Gauge
@@ -27,7 +28,7 @@ METRICS_PORT = int(os.environ.get("METRICS_PORT", "8000"))
 DEBUG        = os.environ.get("DEBUG", "1") not in ("0","false","False")
 
 # 동작 플래그
-APPEND_ONLY          = os.environ.get("APPEND_ONLY", "0") in ("1","true","True")      # 1이면 append-only (업데이트/삭제 비활성)
+APPEND_ONLY          = os.environ.get("APPEND_ONLY", "0") in ("1","true","True")
 ALLOW_ADD_HIDDEN_PK  = os.environ.get("ALLOW_ADD_HIDDEN_PK", "1") in ("1","true","True")
 HIDE_PK_COLUMN       = os.environ.get("HIDE_PK_COLUMN", "1") in ("1","true","True")
 SORT_BY_PK_ON_START  = os.environ.get("SORT_BY_PK_ON_START", "1") in ("1","true","True")
@@ -40,11 +41,15 @@ DELETED_JSON_KEY = os.environ.get("DELETED_JSON_KEY", "__deleted")
 
 # 날짜 변환 설정
 DATE_FORMAT       = os.environ.get("DATE_FORMAT", "%Y-%m-%d")
-DATE_EPOCH_BASE   = os.environ.get("DATE_EPOCH_BASE", "1970-01-01")  # 일수 기준 시작일
-DATE_KEYS         = {"initial_install_date", "failure_date"}         # 변환 대상 키
+DATE_EPOCH_BASE   = os.environ.get("DATE_EPOCH_BASE", "1970-01-01")
+DATE_KEYS         = {"initial_install_date", "failure_date"}
+DATE_CONVERT_ON   = os.environ.get("DATE_CONVERT_ON", "1") in ("1","true","True")
 
-# A~L까지만 “데이터 유무 판단”에 사용
-DATA_LAST_COL_IDX_0 = 12  # 0-indexed; 11 => L열
+# 데이터 유무 판단 마지막 컬럼(A..L/M 등) — 0-index (L=11, M=12)
+DATA_LAST_COL_IDX_0 = int(os.environ.get("DATA_LAST_COL_IDX_0", "11"))
+
+# LRU 캐시 설정
+PK_CACHE_MAX_KEYS = int(os.environ.get("PK_CACHE_MAX_KEYS", "1000"))
 
 # ================== Metrics ==================
 m_msgs_in       = Counter("cdc_msgs_in_total",          "Messages polled")
@@ -56,7 +61,7 @@ m_appends       = Counter("cdc_sheet_appends_total",    "Rows appended")
 m_deletes       = Counter("cdc_sheet_deletes_total",    "Rows deleted")
 m_api_calls     = Counter("cdc_sheets_api_calls_total", "Google Sheets API calls")
 m_batch_latency = Histogram("cdc_batch_seconds",        "Batch seconds")
-m_rows_cached   = Gauge("cdc_sheet_rows",               "Rows cached (pk-indexed)")
+m_rows_cached   = Gauge("cdc_sheet_rows",               "Rows indexed in cache")
 
 # ================== Sheets ==================
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -68,6 +73,21 @@ def build_sheets():
     return build("sheets", "v4", credentials=creds, cache_discovery=False)
 
 sheets = build_sheets()
+
+# --- 공통 실행 래퍼: 403/401 등 HttpError 상태/본문 로깅 ---
+def exec_or_log(req, where: str):
+    try:
+        return req.execute()
+    except HttpError as e:
+        status = getattr(getattr(e, "resp", None), "status", "?")
+        body = ""
+        try:
+            raw = getattr(e, "content", b"")
+            body = raw.decode("utf-8", "ignore") if isinstance(raw, bytes) else str(raw)
+        except Exception:
+            body = "<no-body>"
+        print(f"[sheets][{where}] HttpError status={status} body_sample={body[:500]!r}")
+        raise
 
 def a1_col(i0:int)->str:
     col=""; i=i0
@@ -83,7 +103,10 @@ def a1(c0:int, r1:int)->str:
 
 def get_sheet_id(spreadsheet_id: str, title: str) -> int:
     m_api_calls.inc()
-    meta = sheets.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+    meta = exec_or_log(
+        sheets.spreadsheets().get(spreadsheetId=spreadsheet_id),
+        "spreadsheets.get(meta)"
+    )
     for s in meta.get("sheets", []):
         if s["properties"]["title"] == title:
             return s["properties"]["sheetId"]
@@ -104,7 +127,8 @@ def is_int_like(x: Any) -> bool:
     return False
 
 def convert_date_value(v: Any) -> str:
-    """20366 같은 정수는 epoch-days로 보고 YYYY-MM-DD로 변환. 나머지는 그대로(빈값은 빈칸)."""
+    if not DATE_CONVERT_ON:
+        return "" if v is None else str(v)
     if v is None or v == "":
         return ""
     if is_int_like(v):
@@ -119,13 +143,15 @@ def convert_date_value(v: Any) -> str:
             return f"{y}-{m}-{d}"
     return str(v)
 
-# ====== 헤더/표 검사: A1~L1만 ======
+# ====== 헤더: A1..(마지막)만 체크 ======
 def get_headers()->List[str]:
-    """1행 헤더 유무는 A1:L1만 체크(사용자 요청)."""
     m_api_calls.inc()
-    res = sheets.spreadsheets().values().get(
-        spreadsheetId=SHEET_ID, range=f"{SHEET_NAME}!A1:{a1_col(DATA_LAST_COL_IDX_0)}1"
-    ).execute()
+    res = exec_or_log(
+        sheets.spreadsheets().values().get(
+            spreadsheetId=SHEET_ID, range=f"{SHEET_NAME}!A1:{a1_col(DATA_LAST_COL_IDX_0)}1"
+        ),
+        "values.get(headers)"
+    )
     values = res.get("values", [])
     if not values: return []
     row1 = values[0]
@@ -136,17 +162,20 @@ def get_headers()->List[str]:
 def hide_column(sheet_id_int: int, col_idx_0: int):
     try:
         m_api_calls.inc()
-        sheets.spreadsheets().batchUpdate(
-            spreadsheetId=SHEET_ID,
-            body={"requests":[{
-                "updateDimensionProperties":{
-                    "range":{"sheetId":sheet_id_int,"dimension":"COLUMNS",
-                             "startIndex":col_idx_0,"endIndex":col_idx_0+1},
-                    "properties":{"hiddenByUser": True},
-                    "fields":"hiddenByUser"
-                }
-            }]}
-        ).execute()
+        exec_or_log(
+            sheets.spreadsheets().batchUpdate(
+                spreadsheetId=SHEET_ID,
+                body={"requests":[{
+                    "updateDimensionProperties":{
+                        "range":{"sheetId":sheet_id_int,"dimension":"COLUMNS",
+                                 "startIndex":col_idx_0,"endIndex":col_idx_0+1},
+                        "properties":{"hiddenByUser": True},
+                        "fields":"hiddenByUser"
+                    }
+                }]}
+            ),
+            "batchUpdate.hide_column"
+        )
     except HttpError as e:
         if DEBUG: print(f"[warn] hide_column: {e}")
 
@@ -162,21 +191,22 @@ def _is_pk_header(cell: Optional[str]) -> bool:
     return isinstance(cell, str) and cell.strip().lower() == "__pk"
 
 def ensure_leftmost_pk(sheet_id_int: int):
-    """A1이 '__pk'가 되도록 보정(허용 시). 헤더 없으면 A1='__pk'만 기록."""
     headers = get_headers()
-
     if not headers:
         if not ALLOW_ADD_HIDDEN_PK:
             if DEBUG: print("[init] header empty; __pk not added (ALLOW_ADD_HIDDEN_PK=0)")
             return
         try:
             m_api_calls.inc()
-            sheets.spreadsheets().values().update(
-                spreadsheetId=SHEET_ID,
-                range=f"{SHEET_NAME}!A1:A1",
-                valueInputOption="RAW",
-                body={"values":[["__pk"]]}
-            ).execute()
+            exec_or_log(
+                sheets.spreadsheets().values().update(
+                    spreadsheetId=SHEET_ID,
+                    range=f"{SHEET_NAME}!A1:A1",
+                    valueInputOption="RAW",
+                    body={"values":[["__pk"]]}
+                ),
+                "values.update(A1=__pk)"
+            )
             ensure_pk_hidden_if_needed(sheet_id_int)
             if DEBUG: print("[init] set __pk at A1 on empty header")
         except HttpError as e:
@@ -192,71 +222,75 @@ def ensure_leftmost_pk(sheet_id_int: int):
         return
 
     try:
-        # A열 삽입
         m_api_calls.inc()
-        sheets.spreadsheets().batchUpdate(
-            spreadsheetId=SHEET_ID,
-            body={"requests":[{
-                "insertDimension":{
-                    "range":{"sheetId": sheet_id_int, "dimension":"COLUMNS",
-                             "startIndex":0, "endIndex":1}
-                }
-            }]}
-        ).execute()
-        # A1에 __pk
+        exec_or_log(
+            sheets.spreadsheets().batchUpdate(
+                spreadsheetId=SHEET_ID,
+                body={"requests":[{
+                    "insertDimension":{
+                        "range":{"sheetId": sheet_id_int, "dimension":"COLUMNS",
+                                 "startIndex":0, "endIndex":1}
+                    }
+                }]}
+            ),
+            "batchUpdate.insertDimension(A)"
+        )
         m_api_calls.inc()
-        sheets.spreadsheets().values().update(
-            spreadsheetId=SHEET_ID,
-            range=f"{SHEET_NAME}!A1:A1",
-            valueInputOption="RAW",
-            body={"values":[["__pk"]]}
-        ).execute()
+        exec_or_log(
+            sheets.spreadsheets().values().update(
+                spreadsheetId=SHEET_ID,
+                range=f"{SHEET_NAME}!A1:A1",
+                valueInputOption="RAW",
+                body={"values":[["__pk"]]}
+            ),
+            "values.update(A1=__pk,after-insert)"
+        )
         ensure_pk_hidden_if_needed(sheet_id_int)
         if DEBUG: print("[init] inserted column A and set __pk")
     except HttpError as e:
         if DEBUG: print(f"[warn] ensure_leftmost_pk(insert col): {e}")
 
 def sort_sheet_by_pk(sheet_id_int: int, has_header: bool):
-    """A열(__pk) 기준 정렬(헤더 제외) — 선택 사항."""
     try:
         m_api_calls.inc()
-        sheets.spreadsheets().batchUpdate(
-            spreadsheetId=SHEET_ID,
-            body={"requests":[{
-                "sortRange":{
-                    "range":{
-                        "sheetId": sheet_id_int,
-                        "startRowIndex": 1 if has_header else 0,
-                        "startColumnIndex": 0,
-                    },
-                    "sortSpecs":[{"dimensionIndex": 0, "sortOrder": "ASCENDING"}]
-                }
-            }]}
-        ).execute()
+        exec_or_log(
+            sheets.spreadsheets().batchUpdate(
+                spreadsheetId=SHEET_ID,
+                body={"requests":[{
+                    "sortRange":{
+                        "range":{
+                            "sheetId": sheet_id_int,
+                            "startRowIndex": 1 if has_header else 0,
+                            "startColumnIndex": 0,
+                        },
+                        "sortSpecs":[{"dimensionIndex": 0, "sortOrder": "ASCENDING"}]
+                    }
+                }]}
+            ),
+            "batchUpdate.sortRange(A)"
+        )
         if DEBUG: print("[init] sorted entire sheet by __pk (A column)")
     except HttpError as e:
         if DEBUG: print(f"[warn] sort_sheet_by_pk: {e}")
 
-# ====== A~L만 보고 "다음에 쓸 행" 찾기 ======
-def find_next_row_for_AL(start_row: int) -> int:
-    """
-    A{start_row}:L 범위를 읽고, A~L 중 하나라도 값이 있는 **마지막 행 바로 아래**를 반환.
-    M열 이후에 사용자가 뭘 적어놔도 **무시**.
-    """
-    last_col_letter = a1_col(DATA_LAST_COL_IDX_0)  # 'L'
+# ====== A..(마지막)만 보고 “다음 쓸 행” 계산 ======
+def find_next_row_for_range(start_row: int) -> int:
+    last_col_letter = a1_col(DATA_LAST_COL_IDX_0)
     m_api_calls.inc()
-    res = sheets.spreadsheets().values().get(
-        spreadsheetId=SHEET_ID,
-        range=f"{SHEET_NAME}!A{start_row}:{last_col_letter}",
-        majorDimension="ROWS"
-    ).execute()
+    res = exec_or_log(
+        sheets.spreadsheets().values().get(
+            spreadsheetId=SHEET_ID,
+            range=f"{SHEET_NAME}!A{start_row}:{last_col_letter}",
+            majorDimension="ROWS"
+        ),
+        "values.get(find_next_row)"
+    )
     rows = res.get("values", [])
     last = start_row - 1
     for idx, row in enumerate(rows, start=start_row):
-        # row 길이가 짧아도 빈칸으로 간주됨
         if any((str(cell).strip() != "" for cell in row)):
             last = idx
-    return last + 1  # 다음 행
+    return last + 1
 
 # ================== Kafka ==================
 def build_consumer()->Consumer:
@@ -289,15 +323,74 @@ def send_dlq(msg, reason:str):
     except Exception as e:
         print(f"[dlq-fail] {e}", file=sys.stderr)
 
+# ================== LRU + Lazy Loader ==================
+class PKRowIndexLRU:
+    def __init__(self, start_row: int, max_keys: int):
+        self.start_row = start_row
+        self.max_keys = max_keys
+        self.snapshot: List[str] = []
+        self.cache: "OrderedDict[str, List[int]]" = OrderedDict()
+
+    def refresh_snapshot(self):
+        m_api_calls.inc()
+        res = exec_or_log(
+            sheets.spreadsheets().values().get(
+                spreadsheetId=SHEET_ID,
+                range=f"{SHEET_NAME}!A{self.start_row}:A",
+                majorDimension="COLUMNS"
+            ),
+            "values.get(snapshot A)"
+        )
+        self.snapshot = (res.get("values", [[]]) or [[]])[0]
+        self.cache.clear()
+        m_rows_cached.set(0)
+        if DEBUG: print(f"[cache] snapshot refreshed, length={len(self.snapshot)}")
+
+    def _scan_rows_for_pk(self, pk: str) -> List[int]:
+        rows: List[int] = []
+        if not self.snapshot:
+            self.refresh_snapshot()
+        for i, v in enumerate(self.snapshot, start=self.start_row):
+            if v is not None and str(v) == pk:
+                rows.append(i)
+        return rows
+
+    def get_rows(self, pk: str) -> List[int]:
+        if pk in self.cache:
+            rows = self.cache.pop(pk)
+            self.cache[pk] = rows
+            return rows
+        rows = self._scan_rows_for_pk(pk)
+        self.cache[pk] = rows
+        if len(self.cache) > self.max_keys:
+            self.cache.popitem(last=False)
+        m_rows_cached.set(sum(len(v) for v in self.cache.values()))
+        return rows
+
+    def verify_row_has_pk(self, row: int, pk: str) -> bool:
+        m_api_calls.inc()
+        res = exec_or_log(
+            sheets.spreadsheets().values().get(
+                spreadsheetId=SHEET_ID,
+                range=f"{SHEET_NAME}!A{row}:A{row}",
+                majorDimension="ROWS"
+            ),
+            "values.get(verify A{row})"
+        )
+        vals = res.get("values", [])
+        cur = (vals[0][0] if (vals and vals[0]) else "")
+        return str(cur) == str(pk)
+
+    def invalidate(self):
+        self.refresh_snapshot()
+
 # ================== State ==================
 class SheetState:
     def __init__(self):
         self.sheet_id_int = get_sheet_id(SHEET_ID, SHEET_NAME)
 
-        # __pk 보장/숨김
         ensure_leftmost_pk(self.sheet_id_int)
 
-        # 헤더/시작행 계산
         self.headers = get_headers()
         self.header_mode = len(self.headers) > 0
         self.start_row = 2 if self.header_mode else 1
@@ -306,37 +399,16 @@ class SheetState:
         if self.has_pk_col and SORT_BY_PK_ON_START:
             sort_sheet_by_pk(self.sheet_id_int, self.header_mode)
 
-        # pk → 다중 행 목록 (업데이트/삭제용)
-        self.pk_rows: Dict[str, List[int]] = (
-            self._load_pk_rows_from_A() if (self.has_pk_col and not APPEND_ONLY) else {}
-        )
-        m_rows_cached.set(sum(len(v) for v in self.pk_rows.values()))
+        self.pk_index = PKRowIndexLRU(self.start_row, PK_CACHE_MAX_KEYS)
 
         if DEBUG:
             print(f"[flags] APPEND_ONLY={APPEND_ONLY} ALLOW_ADD_HIDDEN_PK={ALLOW_ADD_HIDDEN_PK} HIDE_PK_COLUMN={HIDE_PK_COLUMN} SORT_BY_PK_ON_START={SORT_BY_PK_ON_START} SORT_BEFORE_APPLY={SORT_BEFORE_APPLY}")
             print(f"[init] header_mode={self.header_mode} start_row={self.start_row} has_pk_col={self.has_pk_col}")
 
-    def _load_pk_rows_from_A(self) -> Dict[str, List[int]]:
-        m_api_calls.inc()
-        res = sheets.spreadsheets().values().get(
-            spreadsheetId=SHEET_ID,
-            range=f"{SHEET_NAME}!A{self.start_row}:A",
-            majorDimension="COLUMNS"
-        ).execute()
-        vals = (res.get("values", [[]]) or [[]])[0]
-        pk_rows: Dict[str, List[int]] = {}
-        for i, v in enumerate(vals, start=self.start_row):
-            if v is None or str(v) == "":
-                continue
-            k = str(v)
-            pk_rows.setdefault(k, []).append(i)
-        return pk_rows
-
     def build_row_values(self, record: Dict[str,Any], pk: str) -> List[str]:
-        """CDC JSON 순서 그대로, 날짜 키는 사람이 읽게 변환."""
         out: List[str] = []
         for k, v in record.items():
-            if k in DATE_KEYS:
+            if DATE_CONVERT_ON and (k in DATE_KEYS):
                 out.append(convert_date_value(v))
             else:
                 out.append("" if v is None else str(v))
@@ -353,77 +425,92 @@ def apply_batch(state: SheetState,
     if state.has_pk_col and SORT_BEFORE_APPLY:
         sort_sheet_by_pk(state.sheet_id_int, state.header_mode)
 
-    if state.has_pk_col and not APPEND_ONLY:
-        state.pk_rows = state._load_pk_rows_from_A()
-        m_rows_cached.set(sum(len(v) for v in state.pk_rows.values()))
-
     updates, appends = [], []
 
+    # 1) UPSERT
     for pk, rec in upserts:
-        row = state.build_row_values(rec, pk)
-        if state.has_pk_col and not APPEND_ONLY and pk and pk in state.pk_rows:
-            # 동일 pk가 여러개면 맨 아래 것 업데이트
-            r = state.pk_rows[pk][-1]
-            last_col_index = max(0, len(row) - 1)
-            rng = f"{SHEET_NAME}!A{r}:{a1_col(last_col_index)}{r}"
-            updates.append({"range": rng, "values":[row]})
-        else:
-            appends.append(row)
+        row_vals = state.build_row_values(rec, pk)
+        if state.has_pk_col and not APPEND_ONLY and pk:
+            rows = state.pk_index.get_rows(pk)
+            if rows:
+                target = rows[-1]
+                if not state.pk_index.verify_row_has_pk(target, pk):
+                    state.pk_index.invalidate()
+                    rows = state.pk_index.get_rows(pk)
+                    target = rows[-1] if rows else None
+                if target:
+                    rng = f"{SHEET_NAME}!A{target}:{a1_col(len(row_vals)-1)}{target}"
+                    updates.append({"range": rng, "values":[row_vals]})
+                    continue
+        appends.append(row_vals)
 
-    # 업데이트 먼저
+    # 2) UPDATE
     if updates:
         m_api_calls.inc()
-        sheets.spreadsheets().values().batchUpdate(
-            spreadsheetId=SHEET_ID,
-            body={"valueInputOption":"RAW","data":updates}
-        ).execute()
+        exec_or_log(
+            sheets.spreadsheets().values().batchUpdate(
+                spreadsheetId=SHEET_ID,
+                body={"valueInputOption":"RAW","data":updates}
+            ),
+            "values.batchUpdate(upserts)"
+        )
         m_updates.inc(len(updates))
         if DEBUG: print(f"[apply] updated={len(updates)}")
+        state.pk_index.invalidate()
 
-    # ★ Append: A~L만 보고 “다음에 쓸 행”을 계산해서 그 위치에 바로 update로 기록
+    # 3) APPEND (구멍 없이 직사각형 update)
     if appends:
-        next_row = find_next_row_for_AL(state.start_row)
-        # 직사각형으로 쓰기 위해 길이 패딩
+        next_row = find_next_row_for_range(state.start_row)
         max_len = max(len(r) for r in appends)
         padded = [r + [""]*(max_len - len(r)) for r in appends]
         end_row = next_row + len(padded) - 1
         rng = f"{SHEET_NAME}!A{next_row}:{a1_col(max_len-1)}{end_row}"
         m_api_calls.inc()
-        sheets.spreadsheets().values().update(
-            spreadsheetId=SHEET_ID,
-            range=rng,
-            valueInputOption="RAW",
-            body={"values": padded}
-        ).execute()
+        exec_or_log(
+            sheets.spreadsheets().values().update(
+                spreadsheetId=SHEET_ID,
+                range=rng,
+                valueInputOption="RAW",
+                body={"values": padded}
+            ),
+            "values.update(append-rect)"
+        )
         m_appends.inc(len(appends))
-        if DEBUG: print(f"[apply] appended={len(appends)} at rows {next_row}..{end_row} (A..{a1_col(max_len-1)})")
+        if DEBUG: print(f"[apply] appended={len(appends)} at rows {next_row}..{end_row}")
+        state.pk_index.invalidate()
 
-    # 삭제: pk 기준으로 모든 행 제거(옵션 off면 무시)
+    # 4) DELETE
     if deletes and state.has_pk_col and not APPEND_ONLY:
-        # 적용 직전 최신 맵으로
-        state.pk_rows = state._load_pk_rows_from_A()
         del_rows: List[int] = []
         for pk in deletes:
-            rows = state.pk_rows.get(pk, [])
-            if rows:
-                del_rows.extend(rows)
-        del_rows = sorted(set(del_rows), reverse=True)
+            rows = state.pk_index.get_rows(pk)
+            if not rows:
+                continue
+            for r in rows:
+                if state.pk_index.verify_row_has_pk(r, pk):
+                    del_rows.append(r)
+                else:
+                    state.pk_index.invalidate()
+                    rows2 = state.pk_index.get_rows(pk)
+                    if r in rows2 and state.pk_index.verify_row_has_pk(r, pk):
+                        del_rows.append(r)
         if del_rows:
+            del_rows = sorted(set(del_rows), reverse=True)
             reqs = [{"deleteDimension":{
                 "range":{"sheetId": state.sheet_id_int,
                          "dimension":"ROWS",
                          "startIndex": r-1, "endIndex": r}
             }} for r in del_rows]
             m_api_calls.inc()
-            sheets.spreadsheets().batchUpdate(
-                spreadsheetId=SHEET_ID, body={"requests": reqs}
-            ).execute()
+            exec_or_log(
+                sheets.spreadsheets().batchUpdate(
+                    spreadsheetId=SHEET_ID, body={"requests": reqs}
+                ),
+                "batchUpdate.deleteDimension(rows)"
+            )
             m_deletes.inc(len(del_rows))
             if DEBUG: print(f"[apply] deleted rows={del_rows}")
-
-    if state.has_pk_col and not APPEND_ONLY:
-        state.pk_rows = state._load_pk_rows_from_A()
-        m_rows_cached.set(sum(len(v) for v in state.pk_rows.values()))
+            state.pk_index.invalidate()
 
 # ================== Utils/Main ==================
 def parse_json(b: Optional[bytes])->Dict[str,Any]:
@@ -476,13 +563,11 @@ def main():
                 val = parse_json(msg.value())
                 key = parse_json(msg.key())
 
-                # delete 판정
                 op = (val.get(OP_JSON_KEY) or val.get("op") or "").lower() if val else ""
                 deleted_flag = (str(val.get(DELETED_JSON_KEY,"")).lower()=="true") if val else False
                 tombstone_delete = (not val) and key and (PK_JSON_KEY in key and key[PK_JSON_KEY] is not None)
                 is_delete = (op=="d") or deleted_flag or tombstone_delete
 
-                # pk 추출 (value 우선, 없으면 key에서)
                 pk = None
                 for src in (val, key):
                     if not src: continue
@@ -511,7 +596,17 @@ def main():
                     apply_batch(state, upserts, deletes)
                 consumer.commit(offsets=last_offsets, asynchronous=False)
                 m_msgs_ok.inc(len(upserts)+len(deletes))
-            except (HttpError, ConnectionError, TimeoutError, BrokenPipeError) as e:
+            except HttpError as e:
+                status = getattr(getattr(e, "resp", None), "status", "?")
+                body = ""
+                try:
+                    raw = getattr(e, "content", b"")
+                    body = raw.decode("utf-8", "ignore") if isinstance(raw, bytes) else str(raw)
+                except Exception:
+                    pass
+                if DEBUG: print(f"[main] HttpError status={status} body_sample={body[:500]!r}")
+                m_msgs_fail.inc(len(msgs))
+            except (ConnectionError, TimeoutError, BrokenPipeError) as e:
                 if DEBUG: print(f"[http/network] {type(e).__name__}: {e}")
                 m_msgs_fail.inc(len(msgs))
             except Exception as e:
