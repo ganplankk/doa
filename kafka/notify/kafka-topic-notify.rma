@@ -1,0 +1,16 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: notify.rma
+  namespace: streaming
+  labels:
+    strimzi.io/cluster: doa-kafka
+spec:
+  partitions: 3
+  replicas: 1
+  config:
+    cleanup.policy: "delete"
+    retention.ms: 604800000        # 7 days
+    min.insync.replicas: "1"
+    segment.bytes: 1073741824      # 1 GiB
+

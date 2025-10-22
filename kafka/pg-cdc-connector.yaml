@@ -4,7 +4,6 @@ metadata:
   name: pg-cdc
   namespace: streaming
   labels:
-    # 이 라벨로 어떤 KafkaConnect에 붙을지 지정 (doa-connect)
     strimzi.io/cluster: doa-connect
 spec:
   class: io.debezium.connector.postgresql.PostgresConnector
@@ -64,6 +63,4 @@ spec:
     errors.deadletterqueue.topic.name: "dlq.pg-cdc"
     errors.deadletterqueue.context.headers.enable: "true"
 
-    # (클러스터 내부라면 TLS 미사용)
-    # database.sslmode: disable
 

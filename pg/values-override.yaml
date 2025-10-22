@@ -22,6 +22,8 @@ primary:
     #    (네트워크 플러그인에 맞춰 CIDR 교체: 예 Flannel 10.244.0.0/16, Calico 192.168.0.0/16 등)
     host    doadb           debezium        10.244.0.0/16           scram-sha-256
     host    replication     debezium        10.244.0.0/16           scram-sha-256
+    host    doadb           rma_user     10.244.0.0/16    scram-sha-256
+
 
     # 3) 외부(= Apps Script egress IP) — "정말" 필요한 경우만, TLS + mTLS 강제
     #    <ALLOWLIST>는 고정된 소스 IP(/32 또는 소수의 /29 등)만 넣기

@@ -20,7 +20,7 @@ spec:
       #  - name: regcred
       containers:
       - name: app
-        image: ganplank/sheets-upserter:11.1           # upserter container 이미지
+        image: ganplank/sheets-upserter:10.0.5          # upserter container 이미지
         imagePullPolicy: IfNotPresent
         env:
         - { name: KAFKA_BOOTSTRAP, value: "doa-kafka-kafka-bootstrap:9092" }
@@ -30,6 +30,9 @@ spec:
         - { name: METRICS_PORT,    value: "8000" }
         - { name: DLQ_TOPIC,     value: "dlq.sheets-upserter" }    # (옵션) 앱 DLQ 쓰면 주석 해제
         - { name: GOOGLE_APPLICATION_CREDENTIALS, value: "/var/secrets/service-account.json" }
+        
+        # NOTI Consumer
+        - { name: NOTIFY_TOPIC, value: "notify.rma" }
 
         # ▼ 새 코드 스위치들
         - { name: RAW_APPEND_VALUES,   value: "1" }   # JSON 값 순서 그대로 쓰기(기본 권장)

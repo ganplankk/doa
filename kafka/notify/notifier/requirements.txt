@@ -1,0 +1,7 @@
+confluent-kafka==2.5.0
+python-dotenv==1.0.1    # 로컬 개발 시 .env 로 환경변수 관리
+Jinja2==3.1.4           # 메일 HTML 템플릿 분리하고 싶을 때
+requests==2.32.3        # 슬랙/웹훅 같은 HTTP 알림 준비
+pytz==2024.2            # 타임존 처리
+pydantic==2.9.2         # Kafka payload 검증(선택)
+

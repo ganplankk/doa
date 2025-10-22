@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>PIOLINK RMA 신청서</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- 메인/캘린더 스타일 -->
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" />
+  <link rel="stylesheet" href="/static/flatpickr-dark.css" />
+</head>
+<body>
+  <header class="app-header">
+    <img src="/static/logo.png" alt="PIOLINK" class="logo" />
+  <!-- <h2>RMA 신청서</h2> -->
+  </header>
+
+  <main class="container">
+    <form id="rmaForm" novalidate>
+      <div class="grid">
+        <div class="field required">
+          <label for="name">이름</label>
+          <input id="name" name="name" required />
+          <p class="error">이름은 필수입니다.</p>
+        </div>
+
+        <div class="field required">
+          <label for="company">회사명</label>
+          <input id="company" name="company" required />
+          <p class="error">회사명은 필수입니다.</p>
+        </div>
+
+        <div class="field required">
+          <label for="email">이메일</label>
+          <input id="email" name="email" type="email" required placeholder="you@example.com" />
+          <p class="error">올바른 이메일을 입력하세요.</p>
+        </div>
+
+        <div class="field required">
+          <label for="model">모델</label>
+          <input id="model" name="model" required />
+          <p class="error">모델은 필수입니다.</p>
+        </div>
+
+        <div class="field required">
+          <label for="serial_number">S/N</label>
+          <input id="serial_number" name="serial_number" required />
+          <p class="error">S/N은 필수입니다.</p>
+        </div>
+
+        <div class="field">
+          <label for="as_method">유상유무</label>
+          <select id="as_method" name="as_method">
+            <option value="">선택</option>
+            <option value="유상">유상</option>
+            <option value="무상">무상</option>
+          </select>
+        </div>
+
+        <div class="field required">
+          <label for="install_date">최초설치일</label>
+          <input id="install_date" name="initial_install_date" placeholder="YYYY-MM-DD" required />
+          <p class="error">최초설치일은 필수입니다.</p>
+        </div>
+
+        <div class="field">
+          <label for="failure_date">장애발생일</label>
+          <input id="failure_date" name="failure_date" placeholder="YYYY-MM-DD" />
+        </div>
+
+        <div class="field">
+          <label for="version">버전</label>
+          <input id="version" name="version" />
+        </div>
+
+        <div class="field full">
+          <label for="memo">내용</label>
+          <textarea id="memo" name="memo" rows="4" placeholder="상세 내용을 입력하세요"></textarea>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="submitBtn" type="submit">등록</button>
+        <button type="reset" class="secondary">초기화</button>
+      </div>
+      <div id="toast" role="status" aria-live="polite"></div>
+    </form>
+  </main>
+
+  <footer class="app-footer">
+    <small>© PIOLINK RMA Portal</small>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ko.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,30 @@
+/* 캘린더 팝업 다크화 */
+.flatpickr-calendar{
+  background:var(--panel) !important;border:1px solid var(--border);
+  box-shadow:0 8px 32px rgba(0,0,0,.55);border-radius:12px;color:var(--text) !important;font-family:inherit
+}
+/* 헤더(월/연도) */
+.flatpickr-months{background:rgba(255,255,255,.05);border-bottom:1px solid var(--border)}
+.flatpickr-current-month{color:var(--text) !important}
+.flatpickr-current-month input.cur-year{background:transparent !important;color:var(--text) !important;border:none !important}
+.flatpickr-prev-month,.flatpickr-next-month{color:var(--text) !important;opacity:.85;transition:color .2s,opacity .2s}
+.flatpickr-prev-month:hover,.flatpickr-next-month:hover{color:var(--brand) !important;opacity:1}
+
+/* 요일 헤더 */
+span.flatpickr-weekday{color:var(--muted);font-weight:600}
+
+/* 날짜 셀 */
+.flatpickr-day{color:var(--text);background:transparent;border-radius:8px;transition:.2s background,.2s color}
+.flatpickr-day:hover{background:rgba(78,168,255,.15)}
+.flatpickr-day.today{border:1px solid var(--brand);color:var(--brand)}
+.flatpickr-day.selected{background:var(--brand);color:#05142a;font-weight:700;box-shadow:0 0 8px rgba(78,168,255,.3)}
+.flatpickr-day.prevMonthDay,.flatpickr-day.nextMonthDay{color:var(--muted)}
+
+/* 시간 영역(사용 시) */
+.flatpickr-time{border-top:1px solid var(--border);background:rgba(255,255,255,.05)}
+.flatpickr-time input,.flatpickr-time .flatpickr-am-pm{background:transparent;color:var(--text)}
+
+/* 입력창도 다크 */
+input.flatpickr-input{background:#0d162a !important;color:var(--text) !important;border:1px solid var(--border) !important;border-radius:10px}
+input.flatpickr-input::placeholder{color:var(--muted)}
+

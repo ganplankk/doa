@@ -1,0 +1,241 @@
+:root {
+  --bg:#0b1020;
+  --panel:#121a2c;
+  --muted:#B0B9C8;
+  --text:#F4F7FA;
+  --brand:#4ea8ff;
+  --ok:#16a34a;
+  --warn:#ef4444;
+  --border:rgba(255,255,255,.08);
+  --focus:#7cc3ff;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: linear-gradient(180deg, #0a0f1d, #0c1430);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, Apple SD Gothic Neo, Noto Sans KR, sans-serif;
+  color: var(--text);
+}
+
+/* ===============================
+   헤더 디자인 (로고 + 제목)
+================================*/
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 22px 0;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(6px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* 로고 크기 확장 및 선명도 향상 */
+.logo {
+  width: 120px;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 0 10px rgba(78,168,255,0.4)) brightness(1.2);
+  transition: transform .25s ease;
+}
+
+.logo:hover {
+  transform: scale(1.05);
+}
+
+/* 제목 (RMA 신청서) */
+.app-header h1 {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: 1px;
+  margin: 0;
+  text-shadow: 0 0 6px rgba(78,168,255,0.3);
+}
+
+/* ===============================
+   푸터
+================================*/
+.app-footer {
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+  justify-content: center;
+  padding: 20px;
+  margin-top: 28px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* ===============================
+   메인 컨테이너
+================================*/
+.container {
+  max-width: 960px;
+  margin: 36px auto;
+  padding: 0 20px;
+}
+
+/* ===============================
+   폼 및 입력 요소
+================================*/
+form {
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 26px 22px;
+  box-shadow: 0 10px 40px rgba(0,0,0,.35);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field.full {
+  grid-column: 1 / -1;
+}
+
+.field label {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.field.required label::after {
+  content: " *";
+  color: var(--warn);
+}
+
+input, select, textarea {
+  background: #0d162a;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 15px;
+  outline: none;
+  transition: .15s border-color, .15s box-shadow;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 4px rgba(78,168,255,.15);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--muted);
+}
+
+/* 드롭다운 커스텀 */
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text) 50%),
+    linear-gradient(135deg, var(--text) 50%, transparent 50%),
+    linear-gradient(to right, transparent, transparent);
+  background-position:
+    calc(100% - 18px) calc(50% - 5px),
+    calc(100% - 12px) calc(50% - 5px),
+    calc(100% - 2.2em) 0.4em;
+  background-size: 6px 6px, 6px 6px, 2.2em 2.2em;
+  background-repeat: no-repeat;
+  padding-right: 2.4em;
+}
+
+/* ===============================
+   버튼
+================================*/
+.actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+button {
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-weight: 700;
+  cursor: pointer;
+  background: linear-gradient(180deg, var(--brand), #3c8fe6);
+  color: #05142a;
+  box-shadow: 0 8px 24px rgba(78,168,255,.2);
+  transition: .2s transform, .2s box-shadow;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 30px rgba(78,168,255,.25);
+}
+
+button.secondary {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+button:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+/* ===============================
+   에러 및 유효성 메시지
+================================*/
+.field .error {
+  display: none;
+  color: #ff6b6b;
+  font-weight: 600;
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.field.invalid .error {
+  display: block;
+}
+
+.field.invalid input,
+.field.invalid select,
+.field.invalid textarea {
+  border-color: #ff6b6b !important;
+  box-shadow: 0 0 0 3px rgba(255,107,107,.2);
+}
+
+/* ===============================
+   토스트 메시지
+================================*/
+#toast {
+  margin-top: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.toast-ok { color: var(--ok); }
+.toast-err { color: #ff9a9a; }
+
+/* ===============================
+   반응형 레이아웃
+================================*/
+@media (max-width: 720px) {
+  .grid { grid-template-columns: 1fr; }
+  .app-header { flex-direction: column; gap: 8px; }
+  .logo { width: 100px; }
+  .app-header h1 { font-size: 1.6rem; }
+}
+
