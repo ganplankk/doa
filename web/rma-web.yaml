@@ -3,19 +3,6 @@ kind: Namespace
 metadata:
   name: rma
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: pg-secret
-  namespace: rma
-type: Opaque
-stringData:
-  PGHOST: "pg-postgresql.data.svc.cluster.local"   # 실제 주소로 조정
-  PGPORT: "5432"
-  PGUSER: "rma_user"
-  PGPASSWORD: "piolink.com1!"
-  PGDATABASE: "doadb"
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
