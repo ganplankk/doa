@@ -24,3 +24,4 @@ tmp/
 *.sqlite
 *.bak
 *.swp
+kafka/upserter/bhs-auth-ea3c2bfa0575.json
